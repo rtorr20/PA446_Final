@@ -1,0 +1,441 @@
+---
+title: "reports"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(plotly)
+library(naniar)
+library(tidymodels)
+library(rpart.plot)
+```
+
+## Civic Problem and Research Question
+
+### Civic Issue
+
+Chicago residents can report public safety and code enforcement concerns through the city’s 311 system. These include issues like abandoned vehicles, city vehicle sticker violations, liquor establishment complaints, vacant or abandoned buildings, and animal-related safety concerns. In theory, police-related 311 requests offer a low-barrier way for residents to ask the city (and often the police) to respond to problems in their neighborhood.
+
+However, 311 reporting patterns do not necessarily match where crime actually occurs. Some community areas may generate many police-related 311 requests even when recorded crime is relatively low, while others experience higher levels of crime but fewer 311 requests. These mismatches can reflect differences in trust in government, awareness of 311, comfort engaging with police, language barriers, and access to reporting channels.
+
+Understanding how 311 usage aligns—or fails to align—with crime incidents can provide insight into how different communities experience and report public safety concerns.
+
+### Research Question
+
+Do police-related 311 requests align with crime incidents across Chicago’s 77 community areas in 2022, or do mismatches suggest differences in public reporting behavior and perceptions of public safety?
+
+### Scope of “Police-Related” 311 Requests
+
+For this project, I define “police-related” 311 requests as service request types where police or code-enforcement action is clearly or likely involved. Based on the 311 data, I focus on the following request types:
+
+-   Abandoned Vehicle Complaint
+-   City Vehicle Sticker Violation
+-   Vehicle Parked in Bike Lane Complaint
+-   Liquor Establishment Complaint
+-   Business Complaints
+-   Public Vehicle/Valet Complaint
+-   Shared Housing/Vacation Rental Complaint
+-   Cab Feedback
+-   No Building Permit and Construction Violation
+-   Vacant/Abandoned Building Complaint
+-   Sanitation Code Violation
+-   Consumer Fraud Complaint
+-   Consumer Retail Business Complaint
+-   Stray Animal Complaint
+-   Vicious Animal Complaint
+-   Nuisance Animal Complaint
+-   Report an Injured Animal
+-   Animal In Trap Complaint
+-   Coyote Interaction Complaint
+-   Pet Wellness Check Request
+
+These categories represent situations where residents are asking the city—and often the police or related enforcement agencies—to intervene in perceived public safety or code enforcement issues. In later steps, I compare the volume of these police-related 311 requests to recorded crime incidents for each community area.
+
+## Data Acquisition
+
+To answer the research question, I obtained two datasets directly from the Chicago Data Portal using the City of Chicago’s API. All data were accessed in R using httr and jsonlite, then cleaned with dplyr and janitor.
+
+Crime Data (CPD) – “Crimes: 2001–Present”
+
+I accessed the crime dataset (6zsd-86xi) through the API and applied a filter so that only incidents from 2022 were returned. Because the portal normally limits API responses to 1,000 rows, I raised the limit to 500,000. After downloading the data in JSON format, I converted it to a data frame, standardized the variable names, and ensured that community_area was numeric. Records with missing community areas were removed so the dataset could be aggregated geographically.
+
+The key field used in analysis is community_area, which allows crime counts to be summarized across Chicago’s 77 community areas.
+
+311 Service Requests – “311 Service Requests (All Departments)”
+
+I accessed 311 service request data from the unified dataset (vcbm-nzcv) using the API and my application token. I filtered requests to those created between January 1, 2022 and December 31, 2022 and applied a limit of 500,000 rows. The API returned the full set of 2022 service requests within that range.
+
+After downloading the data, I cleaned the column names and converted created_date into a proper date-time format. I then kept only records from 2022 and converted community_area to numeric to ensure alignment with the crime dataset.
+
+The dataset includes a variable called sr_type, which identifies the category of service request. This field is the basis for identifying “police-related” 311 requests in Step 3.
+
+Geographic Alignment
+
+Both datasets include the variable community_area, which makes it possible to aggregate them to the same geographic unit. This shared identifier enables direct comparison between neighborhoods with respect to both crime incidents and police-related 311 reporting behavior.
+
+## Step 3: Data Wrangling and Quality Checks
+
+After acquiring the 2022 crime data and 311 service requests from the Chicago Data Portal, I cleaned and reshaped both datasets so they could be compared at the community-area level.
+
+### Cleaning Process
+
+For both datasets, I: - Standardized variable names using `clean_names()` - Converted date fields (such as `created_date`) to proper date-time formats - Converted `community_area` to a numeric variable for consistent joining - Removed any rows with missing community area values - Aggregated each dataset to produce: - Total number of crime incidents per community area\
+- Total number of police-related 311 requests per community area
+
+The final merged dataset, `ca_crime_311_2022.csv`, contains one row for each of Chicago’s 77 community areas and two key variables:\
+`crime_count` and `police_311_count`.
+
+### Missingness Check
+
+To verify data completeness, I checked for missing values:
+
+```{r}
+colSums(is.na(df))
+```
+
+All variables returned zero missing values, meaning the dataset has complete coverage for every community area.
+
+I also checked whether any community areas had zero crime incidents or zero police-related 311 requests:
+
+```{r}
+df %>% filter(police_311_count == 0 | crime_count == 0)
+
+```
+
+This returned an empty table, confirming that every neighborhood had at least some level of reported crime and at least some police-related 311 activity. This helps ensure that no geographic areas are unintentionally excluded from the analysis.
+
+Visualizing Missingness
+
+I used the naniar package to visualize missingness:
+
+```{r}
+vis_miss(df)
+
+```
+
+The plot shows 100% completeness across all variables, validating the reliability of the final dataset.
+
+Fairness and Data Quality Considerations
+
+Although the cleaned dataset has no missing values, it is important to recognize that 311 reporting behavior varies across neighborhoods for reasons unrelated to actual public safety conditions. Residents in some communities may be more likely to use 311 due to differences in:
+
+Trust and comfort engaging with government systems
+
+Awareness of 311 services
+
+Language accessibility
+
+Internet or phone access
+
+Prior experiences with law enforcement
+
+As a result, high or low numbers of police-related 311 requests do not necessarily reflect higher or lower levels of crime.
+
+In contrast, crime data reflects incidents recorded by the police, which may also carry biases based on enforcement patterns. Comparing the two systems helps identify neighborhoods that may be “over-reporting” or “under-reporting” relative to their recorded crime levels, which becomes central to the analysis in later steps.
+
+## Exploratory Visualizations
+
+### Visualization 1: Relationship Between Crime and Police-Related 311 Requests
+
+```{r}
+
+# Load data
+df <- read_csv("data/ca_crime_311_2022.csv")
+
+# Scatterplot: 311 police-related requests vs. crime counts
+ggplot(df, aes(x = crime_count, y = police_311_count)) +
+  geom_point(color = "#1f78b4", size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 1) +
+  labs(
+    title = "Relationship Between Crime and Police-Related 311 Requests",
+    x = "Crimes reported",
+    y = "Police-Related 311 Requests",
+    caption = "Each point represents one of Chicago's 77 community areas."
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+This visualization shows the relationship between crime incidents and police-related 311 reporting across Chicago’s 77 community areas in 2022. Each point represents one neighborhood. The red line is showing whether higher-crime areas tend to generate more police-related 311 requests.
+
+This plot helps identify mismatches between the two reporting systems. Points far above the line represent areas that report many 311 concerns relative to their crime levels, this could be possible over-reporting or high civic engagement. Points far below the line represent areas with relatively less 311 reporting compared to their crime levels, which could be possible under-reporting, distrust, or lower awareness of 311.
+
+```{r}
+
+p <- df %>%
+  ggplot(aes(x = crime_count, y = police_311_count,
+             text = paste("Community Area:", community_area))) +
+  geom_point(color = "#1f78b4", size = 3, alpha = 0.7) +
+  labs(
+    title = "Interactive Scatterplot: Crime vs. Police-Related 311",
+    x = "Crimes reported",
+    y = "Police-Related 311 Requests"
+  ) +
+  theme_minimal()
+
+ggplotly(p, tooltip = "text")
+
+```
+
+```{r}
+
+df <- read_csv("data/ca_crime_311_2022.csv")
+
+# police-related 311 per 100 crimes
+df_mismatch <- df %>%
+  mutate(
+    police_311_per_100_crimes = (police_311_count / crime_count) * 100
+  ) %>%
+  arrange(desc(police_311_per_100_crimes))
+
+```
+
+```{r}
+ggplot(df_mismatch,
+       aes(x = reorder(as.factor(community_area), police_311_per_100_crimes),
+           y = police_311_per_100_crimes)) +
+  geom_col(fill = "#1f78b4", alpha = 0.8) +
+  coord_flip() +
+  labs(
+    title = "Police-Related 311 Requests per 100 Crimes by Community Area",
+    x = "Community Area (ID)",
+    y = "Police-Related 311 Requests per 100 Crimes"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+This bar chart shows police-related 311 requests per 100 crimes for each community area in 2022.
+By converting raw counts into a rate, it becomes easier to see where residents report more 311 concerns relative to crime levels.
+
+Community areas at the top of the chart appear to make more police-related 311 requests per crime incident, which may reflect higher civic engagement, greater awareness of 311, or a stronger expectation that the city will respond. Areas at the bottom of the chart make fewer police-related 311 requests per crime, which may point to under-reporting, limited trust, or barriers to access. 
+
+
+
+```{r}
+ggplot(df_mismatch, aes(x = police_311_per_100_crimes)) +
+  geom_histogram(fill = "#1f78b4", color = "white", bins = 20, alpha = 0.8) +
+  labs(
+    title = "Distribution of Police-Related 311 Requests per 100 Crime",
+    x = "Police-Related 311 Requests per 100 Crimes",
+    y = "Number of Community Areas"
+  ) +
+  theme_minimal(base_size = 13)
+
+```
+
+
+
+This histogram shows how reporting behavior varies across Chicago’s 77 community areas, specifically how often residents submit police-related 311 requests for every 100 crimes that occur in their neighborhood. Each bar represents a group of neighborhoods that fall within a certain range of reporting activity. The x-axis is the rate of police-related 311 requests per 100 crimes. The y-axis tells us how many neighborhoods fall in each range.
+
+Most neighborhoods fall within a moderate range of roughly 8 to 20 police-related 311 requests per 100 crimes. At the same time, some neighborhoods appear at the very low end, submitting few 311 requests despite experiencing higher crime. On the opposite end, a smaller group of neighborhoods reports at much higher rates, including clear outliers that submit more than 40 requests per 100 crimes.
+
+
+```{r}
+ggplot(df_mismatch, aes(y = police_311_per_100_crimes)) +
+  geom_boxplot(fill = "#a6cee3", color = "#1f78b4") +
+  labs(
+    title = "Boxplot of Police-Related 311 Requests per 100 Crimes",
+    y = "Police-Related 311 Requests per 100 Crimes"
+  ) +
+  theme_minimal(base_size = 13)
+
+```
+
+
+
+
+## Advanced Analysis
+
+
+
+```{r}
+
+# create a "mismatch" rate:
+df <- df %>%
+  mutate(police_311_per_100_crimes = (police_311_count / crime_count) * 100)
+
+# binary target for classification:
+# "high_mismatch" = 1 if the community area is in the top 25% of mismatch rates
+cutoff <- quantile(df$police_311_per_100_crimes, probs = 0.75, na.rm = TRUE)
+
+df <- df %>%
+  mutate(
+    high_mismatch = if_else(police_311_per_100_crimes >= cutoff, "high", "not_high"),
+    high_mismatch = factor(high_mismatch)
+  )
+
+
+```
+
+
+```{r}
+set.seed(446)  # reproducibility
+
+# split data into training and testing sets
+data_split <- initial_split(df, prop = 0.80, strata = high_mismatch)
+
+train_data <- training(data_split)
+test_data  <- testing(data_split)
+
+# Quick check 
+#train_data %>% count(high_mismatch)
+#test_data  %>% count(high_mismatch)
+
+```
+
+
+
+
+```{r}
+# Recipe: predict high_mismatch using crime + 311 counts + mismatch rate
+tree_recipe <- recipe(high_mismatch ~ crime_count + police_311_count,
+                      data = train_data)
+
+# Decision tree model
+tree_model <- decision_tree(
+  mode = "classification",
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()
+) %>%
+  set_engine("rpart")
+
+# workflow
+tree_wf <- workflow() %>%
+  add_recipe(tree_recipe) %>%
+  add_model(tree_model)
+
+# tree_wf
+```
+
+
+
+```{r}
+# Cross-validation folds 
+set.seed(446)
+
+# 5-fold CV
+cv_folds <- vfold_cv(train_data, v = 5, strata = high_mismatch)
+
+# cv_folds
+```
+
+
+
+
+```{r}
+
+# Create a tuning grid for the decision tree
+tree_grid <- grid_regular(
+  cost_complexity(),
+  tree_depth(),
+  min_n(),
+  levels = 5)
+
+# tree_grid
+
+```
+
+
+
+```{r}
+
+# Tune
+tree_tuned <- tune_grid(
+  tree_wf,
+  resamples = cv_folds,
+  grid = tree_grid,
+  metrics = metric_set(accuracy)
+)
+
+# tree_tuned
+```
+
+
+
+
+```{r}
+# Select best model 
+
+best_tree <- select_best(tree_tuned, metric = "accuracy")
+
+# best_tree
+```
+
+
+
+
+```{r}
+final_tree_wf <- finalize_workflow(tree_wf, best_tree)
+
+final_tree_fit <- fit(final_tree_wf, data = train_data)
+
+# final_tree_fit
+```
+
+
+
+```{r}
+
+test_predictions <- predict(final_tree_fit, test_data) %>%
+  bind_cols(test_data)
+
+# Confusion matrix
+conf_mat(test_predictions, truth = high_mismatch, estimate = .pred_class)
+
+```
+
+
+```{r}
+test_predictions %>%
+  metrics(truth = high_mismatch, estimate = .pred_class)
+
+```
+
+While the decision tree is a predictive classification model, it is used here as an exploratory and interpretive tool to identify patterns associated with high reporting mismatch across neighborhoods. Given the small sample size, results should be interpreted as illustrative rather than as a deployable prediction model.
+
+
+```{r}
+# extract rpart model from the workflow
+final_tree <- final_tree_fit %>%
+  extract_fit_parsnip() %>%
+  pluck("fit")
+
+```
+
+
+```{r}
+
+rpart.plot(
+  final_tree,
+  type = 2,           # split labels below nodes 
+  extra = 106,        
+  under = TRUE,
+  faclen = 0,         # do not abbreviate factor labels
+  roundint = FALSE    # silence rounding warnings
+)
+
+```
+
+
+
+The decision tree shows that crime volume is the strongest factor distinguishing neighborhoods with high versus low mismatch between police-related 311 requests and reported crime. Community areas with higher crime counts are generally classified as not having a high mismatch, indicating that 311 requests in these neighborhoods more closely track actual crime levels. In contrast, lower-crime areas with relatively high numbers of police-related 311 requests are more likely to be classified as high mismatch, suggesting differences in reporting behavior rather than differences in crime itself. These results are exploratory and meant to highlight patterns in reporting rather than produce precise predictions. From an equity perspective, the findings suggest that perceptions of safety and access to reporting systems may shape how police resources are requested across neighborhoods, independent of actual crime exposure.
+
+
+
+
+
+
+## Reflection 
+
+This analysis has several important limitations related to data quality and bias. Both crime incidents and 311 service requests reflect reported activity rather than actual conditions on the ground. Crime data depend on whether incidents are reported to and recorded by police, while 311 data depend on residents’ awareness of the system, trust in government, and willingness to report concerns. As a result, some neighborhoods may appear to have fewer police-related 311 requests not because concerns are absent, but because residents face barriers to reporting or are reluctant to engage with city services.
+
+Additionally, the classification of “police-related” 311 requests required subjective decisions about which service types to include. While these categories are grounded in enforcement and public safety, they may not capture all relevant situations and should be viewed as an approximation rather than a definitive measure.
+
+These biases matter because the results could be misinterpreted if used without context. Policymakers might incorrectly view high mismatch areas as over-reporting or low mismatch areas as under-reporting, without considering social, historical, or institutional factors. For this reason, the findings should be presented as exploratory and descriptive, intended to prompt further investigation and community engagement rather than direct enforcement or resource allocation decisions.
+
+
+
+
+

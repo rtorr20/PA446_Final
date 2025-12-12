@@ -1,5 +1,5 @@
 ---
-title: "reports"
+title: "PA446_Final"
 format: html
 ---
 
@@ -9,6 +9,10 @@ library(plotly)
 library(naniar)
 library(tidymodels)
 library(rpart.plot)
+library(readr)
+library(lubridate)
+# Load data
+df <- read_csv("data/ca_crime_311_2022.csv")
 ```
 
 ## Civic Problem and Research Question
@@ -61,7 +65,7 @@ I accessed the crime dataset through the API and applied a filter so that only i
 
 **311 Service Requests (All Departments)**
 
-I accessed 311 service request data using the API and I filtered requests for the year 2022, and applied a limit of 50,000 rows. \
+I accessed 311 service request data using the API and I filtered requests for the year 2022, and applied a limit of 50,000 rows.\
 After downloading the data, I cleaned the column names and converted the "created_date" into a proper date-time format. I also converted community_area to numeric to ensure alignment with the crime dataset.\
 The dataset includes a variable called "sr_type", which identifies the category of service request. This is the basis for identifying “police-related” 311 requests.
 
@@ -117,9 +121,6 @@ In contrast, crime data it reflected by incidents recorded by the police, which 
 
 ```{r, echo=FALSE}
 
-# Load data
-df <- read_csv("data/ca_crime_311_2022.csv")
-
 # Scatterplot: 311 police-related requests vs. crime counts
 ggplot(df, aes(x = crime_count, y = police_311_count)) +
   geom_point(color = "#1f78b4", size = 3, alpha = 0.7) +
@@ -158,8 +159,6 @@ ggplotly(p, tooltip = "text")
 ```
 
 ```{r, echo=FALSE}
-
-df <- read_csv("data/ca_crime_311_2022.csv")
 
 # police-related 311 per 100 crimes
 df_mismatch <- df %>%

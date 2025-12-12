@@ -7,7 +7,9 @@ library(lubridate)
 library(dplyr)
 
 
-app_token <- CHICAGO_API_TOKEN=GAWxOAqMnBdo8b1KBho8Zq3AG
+# Chicago Data Portal API token
+app_token <- Sys.getenv("CHICAGO_API_TOKEN")
+
 
 
 
@@ -15,8 +17,8 @@ app_token <- CHICAGO_API_TOKEN=GAWxOAqMnBdo8b1KBho8Zq3AG
 
 #API URL for Chicago crime data.
 # 6zsd-86xi = "Crimes - 2001 to Present" dataset.
-# $where=year=2022 - only keep incidents from 2022
-# $limit=500000 - raise the row limit because it only give me 1,000
+# $where=year=2022 - only keeping incidents from 2022
+# $limit=500000 - raised the row limit because it only gives me 1,000
 
 crime_url <- 
   "https://data.cityofchicago.org/resource/6zsd-86xi.json?$where=year=2022&$limit=500000"
@@ -37,12 +39,13 @@ crime_2022 <- fromJSON(crime_url, flatten = TRUE) %>%
 
 # 2. 311 service requests (all types) - 2022
 
+
 sr_res <- httr::GET(
   url = "https://data.cityofchicago.org/resource/vcbm-nzcv.json",
   query = list(
     "$where"      = "created_date between '2022-01-01T00:00:00' and '2022-12-31T23:59:59'",
-    "$limit"      = "500000",      # NOTE: as a STRING, not a number
-    "$$app_token" = app_token
+    "$limit"      = "500000",   
+    "$$app_token" = app_token   
   )
 )
 
